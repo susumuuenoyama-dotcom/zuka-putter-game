@@ -1,270 +1,38 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zuka Putter Sim - iOS Fixed</title>
+    <title>Zuka Putter Sim Pro - 高精度ゴルフパッティングシミュレーター</title>
+    <meta name="description" content="Web Audio APIと物理エンジンを駆使した、ブラウザで遊べる本格派パターゴルフゲーム。">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; background: #111; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-        #info { font-size: 16px; margin-bottom: 5px; color: #ffeb3b; font-weight: bold; min-height: 20px; }
-        #ui-top { margin-bottom: 5px; font-size: 14px; }
-        canvas { background: #0a2916; cursor: crosshair; touch-action: none; }
-        #ui-bottom { margin-top: 10px; }
-        button { padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px; border: none; background: #ddd; color: #333; }
+        /* ゲーム体験を損なわないためのスクロール・選択禁止設定 */
+        body {
+            overscroll-behavior-y: contain;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            background-color: #020617; /* Slate-950 */
+        }
+        canvas {
+            touch-action: none; /* ブラウザのデフォルトタッチ操作を無効化 */
+        }
     </style>
-</head>
-<body>
-    <div id="info"></div>
-    <div id="ui-top">打数: <span id="strokes">0</span></div>
-    <canvas id="gameCanvas"></canvas>
-    <div id="ui-bottom">
-        <button id="resetBtn">リセット（次のホール）</button>
-    </div>
-
-<script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    
-    // --- 音響エンジン (iOS対応版) ---
-    let audioCtx = null;
-
-    function initAudio() {
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        // iOSのロック解除：suspended状態ならresumeさせる
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
-    }
-
-    function playSound(type) {
-        if (!audioCtx || audioCtx.state !== 'running') return;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        const now = audioCtx.currentTime;
-
-        if (type === 'hit') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(900, now);
-            osc.frequency.exponentialRampToValueAtTime(100, now + 0.05);
-            gain.gain.setValueAtTime(0.3, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.05);
-            osc.start(); osc.stop(now + 0.05);
-        } else if (type === 'cup') {
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(500, now);
-            osc.frequency.exponentialRampToValueAtTime(250, now + 0.15);
-            gain.gain.setValueAtTime(0.4, now);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-            osc.start(); osc.stop(now + 0.4);
-        } else if (type === 'cheer') {
-            [440, 554, 659].forEach(f => {
-                const o = audioCtx.createOscillator();
-                const g = audioCtx.createGain();
-                o.connect(g); g.connect(audioCtx.destination);
-                o.frequency.value = f;
-                g.gain.setValueAtTime(0, now);
-                g.gain.linearRampToValueAtTime(0.08, now + 0.1);
-                g.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
-                o.start(); o.stop(now + 1.5);
-            });
-        } else if (type === 'sigh') {
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(120, now);
-            osc.frequency.linearRampToValueAtTime(80, now + 0.8);
-            gain.gain.setValueAtTime(0.03, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.8);
-            osc.start(); osc.stop(now + 0.8);
-        }
-    }
-
-    // --- ゲーム設定 ---
-    let ball = { x: 0, y: 0, vx: 0, vy: 0, r: 3.5 };
-    let hole = { x: 0, y: 0, r: 9 };
-    let arrow = { ang: 0, len: 0, drag: false };
-    let moving = false, strokes = 0, msg = "";
-    let lineType = 0; 
-    const lineNames = ["【Straight】ストレート", "【Slice】スライス", "【Hook】フック"];
-    let green = { rx: 0, ry: 0, cx: 0, cy: 0 };
-
-    function resize() {
-        canvas.width = window.innerWidth * 0.95;
-        canvas.height = window.innerHeight * 0.75;
-        green.cx = canvas.width / 2;
-        green.cy = canvas.height * 0.5;
-        green.rx = canvas.width * 0.45;
-        green.ry = canvas.height * 0.45;
-        init();
-    }
-
-    function init() {
-        hole.x = green.cx + (Math.random() * 60 - 30);
-        hole.y = green.cy - (green.ry * 0.5);
-        ball.x = green.cx;
-        ball.y = green.cy + (green.ry * 0.7);
-        ball.vx = 0; ball.vy = 0;
-        moving = false; strokes = 0; msg = "";
-        lineType = Math.floor(Math.random() * 3);
-        updateInfo();
-        aimAtHole();
-        draw();
-    }
-
-    function updateInfo(penalty = false) {
-        const text = penalty ? "<span style='color:red;'>Out of Green! +1 Penalty</span>" : lineNames[lineType];
-        document.getElementById('info').innerHTML = text;
-    }
-
-    function aimAtHole() {
-        const dist = Math.hypot(hole.x - ball.x, hole.y - ball.y);
-        arrow.ang = Math.atan2(hole.y - ball.y, hole.x - ball.x);
-        arrow.len = (dist + 40) * 0.35;
-    }
-
-    function isInsideGreen(x, y) {
-        const dx = (x - green.cx) / green.rx;
-        const dy = (y - green.cy) / green.ry;
-        return (dx * dx + dy * dy) <= 1;
-    }
-
-    function draw() {
-        ctx.fillStyle = "#0a2916"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.beginPath();
-        ctx.ellipse(green.cx, green.cy, green.rx, green.ry, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "#1e5b37"; ctx.fill();
-        ctx.strokeStyle = "#1a5e35"; ctx.lineWidth = 3; ctx.stroke();
-        
-        ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
-        ctx.fillStyle = "#000"; ctx.fill();
-
-        if (!moving && !msg) {
-            const tx = ball.x + Math.cos(arrow.ang) * arrow.len;
-            const ty = ball.y + Math.sin(arrow.ang) * arrow.len;
-            ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(tx, ty);
-            ctx.strokeStyle = "rgba(255,255,0,0.5)"; ctx.stroke();
-            ctx.beginPath(); ctx.arc(tx, ty, 6, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255,0,0,0.4)"; ctx.fill();
-        }
-
-        ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-        ctx.fillStyle = "#fff"; ctx.fill();
-
-        if (msg) {
-            ctx.fillStyle = "yellow"; ctx.font = "bold 24px sans-serif";
-            ctx.textAlign = "center"; ctx.fillText(msg, canvas.width/2, canvas.height/2);
-        }
-        document.getElementById('strokes').innerText = strokes;
-    }
-
-    function update() {
-        if (!moving) return;
-
-        let distToHole = Math.hypot(ball.x - hole.x, ball.y - hole.y);
-        const speed = Math.hypot(ball.vx, ball.vy);
-        let slopeFactor = Math.min(1.0, speed * 1.2); 
-
-        let slopeY = 0.002 * slopeFactor; 
-        let slopeX = 0.0015 * slopeFactor;
-        let curveX = (lineType === 1 ? 0.00015 : lineType === 2 ? -0.00015 : 0) * distToHole * slopeFactor;
-
-        ball.vx += slopeX + curveX;
-        ball.vy += slopeY;
-        ball.x += ball.vx;
-        ball.y += ball.vy;
-
-        ball.vx *= 0.98;
-        ball.vy *= 0.98;
-
-        if (!isInsideGreen(ball.x, ball.y)) {
-            moving = false;
-            strokes += 1;
-            updateInfo(true);
-            const ang = Math.atan2(ball.y - green.cy, ball.x - green.cx);
-            ball.x = green.cx + Math.cos(ang) * (green.rx - 5);
-            ball.y = green.cy + Math.sin(ang) * (green.ry - 5);
-            ball.vx = 0; ball.vy = 0;
-            aimAtHole();
-        }
-
-        const d = Math.hypot(ball.x - hole.x, ball.y - hole.y);
-        if (d < hole.r) {
-            if (speed < 1.8) {
-                moving = false; ball.x = hole.x; ball.y = hole.y;
-                msg = strokes === 1 ? "Hole in One!" : "Nice In.";
-                playSound('cup');
-                if (strokes === 1) setTimeout(() => playSound('cheer'), 300);
-            }
-        } else if (Math.hypot(ball.vx, ball.vy) < 0.12) {
-            moving = false;
-            updateInfo();
-            if (d < hole.r * 6) playSound('sigh');
-            aimAtHole();
-        }
-
-        draw();
-        if (moving) requestAnimationFrame(update);
-    }
-
-    // --- 入力系 (iOS/PCハイブリッド) ---
-    function handleInputStart(e) {
-        initAudio(); // iOSのためにここで音声を「起こす」
-        if (moving || msg) return;
-        
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const px = clientX - rect.left;
-        const py = clientY - rect.top;
-
-        const tx = ball.x + Math.cos(arrow.ang) * arrow.len;
-        const ty = ball.y + Math.sin(arrow.ang) * arrow.len;
-
-        if (Math.hypot(px - tx, py - ty) < 30) {
-            arrow.drag = true;
-        } else if (Math.hypot(px - ball.x, py - ball.y) < 40) {
-            strokes++; moving = true;
-            playSound('hit');
-            ball.vx = Math.cos(arrow.ang) * arrow.len * 0.08;
-            ball.vy = Math.sin(arrow.ang) * arrow.len * 0.08;
-            update();
-        }
-    }
-
-    function handleInputMove(e) {
-        if (!arrow.drag) return;
-        e.preventDefault(); // スクロール防止
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const px = clientX - rect.left;
-        const py = clientY - rect.top;
-
-        arrow.ang = Math.atan2(py - ball.y, px - ball.x);
-        arrow.len = Math.max(10, Math.min(canvas.height * 0.9, Math.hypot(px - ball.x, py - ball.y)));
-        draw();
-    }
-
-    function handleInputEnd() {
-        arrow.drag = false;
-    }
-
-    // イベント登録
-    canvas.addEventListener('mousedown', handleInputStart);
-    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInputStart(e); }, {passive: false});
-    
-    window.addEventListener('mousemove', handleInputMove);
-    window.addEventListener('touchmove', (e) => { e.preventDefault(); handleInputMove(e); }, {passive: false});
-    
-    window.addEventListener('mouseup', handleInputEnd);
-    window.addEventListener('touchend', handleInputEnd);
-
-    document.getElementById('resetBtn').addEventListener('click', () => { initAudio(); init(); });
-    window.addEventListener('resize', resize);
-    
-    resize();
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "vite": "https://esm.sh/vite@^7.3.1"
+  }
+}
 </script>
+</head>
+<body class="text-slate-100 antialiased overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>

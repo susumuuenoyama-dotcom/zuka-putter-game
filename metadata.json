@@ -1,0 +1,7 @@
+{
+  "name": "Zuka Putter Sim Pro",
+  "description": "本格物理エンジンとWeb Audio合成サウンドを搭載したプロ仕様パターゴルフシミュレーター",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
