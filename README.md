@@ -1,6 +1,6 @@
 
 # Zuka Putter Sim Pro 🏌️‍♂️
-dummy msg .triger
+dummy ms .triger
 本格的な物理エンジンと、Web Audio APIによるリアルタイム音声合成を搭載した、ブラウザで遊べる高精度パターゴルフシミュレーター。
 
 ## 🚀 Live Demo
