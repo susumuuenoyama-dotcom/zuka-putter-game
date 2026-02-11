@@ -26,6 +26,6 @@
 1. **Aim (照準)**: グリーンの任意の場所をドラッグして、方向とパワーを決めます。
 2. **Shoot (ショット)**: ボール上の「HIT」マークをタップすると、ショットが実行されます。
 3. **Challenge**: 芝目（Straight/Slice/Hook）を読み、最小パット数を目指しましょう。
-
+。
 ---
 Developed by [susumuuenoyama-dotcom](https://github.com/susumuuenoyama-dotcom) & Gemini.
