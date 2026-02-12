@@ -1,7 +1,15 @@
+
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/zuka-putter-game/', // この一行が、GitHub Pagesで芝生を映す鍵です
+  // GitHub Pagesでリポジトリ名がURLに含まれても正しく動作するように設定
+  base: './', 
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+  }
 })
